@@ -1,16 +1,143 @@
-/*
+
+/**
+ * Some definitions from PortAudio:
+ * ================================
+ *
+ * frame: a frame is a set of samples that occur simultaneously;
+ *        for a stereo stream, a frame is two samples.
+ *
+ * frames per buffer: the number of frames passed to the stream 
+ *                    callback function, or the preferred block 
+ *                    granularity for a blocking read/write stream.
+ *
+ */
+
+#include <deque>
+#include <list>
+#include <memory>
+#include <mutex>
+#include <vector>
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "portaudio.h"
 
+
+#define PA_SAMPLE_TYPE paFloat32
+typedef float SAMPLE_T;
+#define SAMPLE_SILENCE  0.0f
+#define PRINTF_S_FORMAT "%.8f"
+
+#define FRAMES_PER_BUFFER 256
+#define NUM_CHANNELS 2 
+#define NUM_BUFFERS 1024
+
+
+template <typename T>
+class SamplePump
+{
+public:
+  
+  using BufferT = std::unique_ptr<std::vector<T>>;
+  
+  SamplePump(
+      std::size_t num_frames_per_buffer,
+      std::size_t num_channels,
+      std::size_t num_max_buffers
+  )
+  {
+    m_num_frames_per_buffer = num_frames_per_buffer;
+    m_num_channels = num_channels;
+
+    // Create empty buffers.
+    for (std::size_t buff_count=0; buff_count<num_max_buffers; buff_count++)
+    {
+      m_unused_buffers.push_back(
+        std::make_unique<std::vector<T>>(
+          m_num_frames_per_buffer, 
+          m_num_channels
+        )
+      );
+    }
+  }
+
+  BufferT get_empty()
+  {
+    std::scoped_lock(m_mutex);
+    if (m_unused_buffers.empty())
+    {
+      return nullptr;
+    }
+    else
+    {
+      auto r = std::move(m_unused_buffers.back());
+      m_unused_buffers.pop_back();
+      return r;
+    }   
+  }
+
+  void return_empty(BufferT buffer)
+  {
+    std::scoped_lock(m_mutex);
+    m_unused_buffers.push_front(std::move(buffer));
+  }
+
+  BufferT consume()
+  {
+    std::scoped_lock(m_mutex);
+    if (m_buffers.empty())
+    {
+      return nullptr;
+    }
+    else
+    {
+      auto r = std::move(m_buffers.front());
+      m_buffers.pop_front();
+      return r;
+    }   
+  }
+
+  void produce(BufferT buffer)
+  {
+    std::scoped_lock(m_mutex);
+    m_buffers.push_back(std::move(buffer));
+  }
+
+private: 
+  std::size_t m_num_frames_per_buffer;
+  std::size_t m_num_channels;
+
+  std::list<BufferT> m_unused_buffers;
+  std::deque<BufferT> m_buffers;
+  std::mutex m_mutex;
+
+};
+
+
+
+void test_sample_pump()
+{
+  SamplePump<SAMPLE_T> sp(FRAMES_PER_BUFFER, NUM_CHANNELS, NUM_BUFFERS);
+  auto empty = sp.get_empty();
+  (*empty)[0] = 5.0;
+  (*empty)[1] = 6.0;
+  sp.produce(std::move(empty));
+  auto full = sp.consume();
+  printf("expecting 5.0 and 6.0, got: %1.1f and %1.1f\n\r", (*full)[0], (*full)[1]);
+  sp.return_empty(std::move(full));
+}
+
+
 int main(void)
 {
-  printf("An empty main() - feels good!\n\r");
+  printf("Simiolus 🐒 is an extinct genus of primates.\n\r");
+  test_sample_pump();
   return 0;
 }
 
-*/
+
+# if 0
 
 
 /** @file paex_record.c
@@ -367,4 +494,4 @@ done:
     return err;
 }
 
-
+#endif
