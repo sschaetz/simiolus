@@ -129,6 +129,64 @@ void test_sample_pump()
 }
 
 
+void setup_port_audio()
+{
+  auto err = Pa_Initialize();
+  if (err != paNoError)
+  {
+    throw std::system_error(
+      err, 
+      std::generic_category(),
+      "Could not initialize portaudio"
+    );
+  }
+
+  PaStreamParameters inputParameters;
+  inputParameters.device = Pa_GetDefaultInputDevice();
+  if (inputParameters.device == paNoDevice) 
+  {
+     throw std::system_error(
+      err, 
+      std::generic_category(),
+      "No default input device"
+    );
+  }
+  inputParameters.channelCount = NUM_CHANNELS;
+  inputParameters.sampleFormat = PA_SAMPLE_TYPE;
+  inputParameters.suggestedLatency = Pa_GetDeviceInfo(
+      inputParameters.device
+  )->defaultLowInputLatency;
+  inputParameters.hostApiSpecificStreamInfo = NULL;
+#if 0 
+  /* Record some audio. -------------------------------------------- */
+  err = Pa_OpenStream(
+            &stream,
+            &inputParameters,
+            NULL,                  /* &outputParameters, */
+            SAMPLE_RATE,
+            FRAMES_PER_BUFFER,
+            paClipOff,      /* we won't output out of range samples so don't bother clipping them */
+            recordCallback,
+            &data );
+  if( err != paNoError ) goto done;
+
+  err = Pa_StartStream( stream );
+  if( err != paNoError ) goto done;
+  printf("\n=== Now recording!! Please speak into the microphone. ===\n"); fflush(stdout);
+
+  while( ( err = Pa_IsStreamActive( stream ) ) == 1 )
+  {
+      Pa_Sleep(1000);
+      printf("index = %d\n", data.frameIndex ); fflush(stdout);
+  }
+  if( err < 0 ) goto done;
+
+  err = Pa_CloseStream( stream );
+  if( err != paNoError ) goto done;
+#endif
+}
+
+
 int main(void)
 {
   printf("Simiolus 🐒 is an extinct genus of primates.\n\r");
