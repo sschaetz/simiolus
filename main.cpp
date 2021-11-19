@@ -1,5 +1,7 @@
 #include <stdio.h>
 
+#include "portaudio.h"
+
 int main(void)
 {
   printf("An empty main() - feels good!\n\r");
