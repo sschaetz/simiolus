@@ -56,8 +56,7 @@ public:
     {
       m_unused_buffers.push_back(
         std::make_unique<std::vector<T>>(
-          m_num_frames_per_buffer, 
-          m_num_channels
+          m_num_frames_per_buffer * m_num_channels
         )
       );
     }
@@ -109,7 +108,7 @@ public:
   void print_status()
   {
     std::scoped_lock(m_mutex);
-    printf("%d unused, %d used",
+    printf("%d unused, %d used\r",
       m_unused_buffers.size(),
       m_buffers.size()
     );
@@ -161,7 +160,7 @@ static int record_callback(
       // No buffer to process this new data; just skip it.
       return paContinue;
     } 
-    auto user_buffer_ptr = &(user_buffer.get()[0]);
+    auto user_buffer_ptr = user_buffer->data();
     if (input_buffer == nullptr)
     {
       for (unsigned long i=0; i<frames_per_buffer; i++)
@@ -269,6 +268,7 @@ int main(void)
   {
       Pa_Sleep(200);
       sp.print_status();
+      fflush(stdout);
   }
 
   if (err < 0) 
