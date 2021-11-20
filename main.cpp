@@ -29,10 +29,11 @@ typedef float SAMPLE_T;
 #define SAMPLE_SILENCE  0.0f
 #define PRINTF_S_FORMAT "%.8f"
 
-#define FRAMES_PER_BUFFER 256
+#define FRAMES_PER_BUFFER 512
 #define NUM_CHANNELS 2 
 #define NUM_BUFFERS 1024
-
+#define SAMPLE_RATE  44100
+#define FRAMES_PER_BUFFER 512
 
 template <typename T>
 class SamplePump
@@ -104,6 +105,22 @@ public:
     m_buffers.push_back(std::move(buffer));
   }
 
+
+  void print_status()
+  {
+    std::scoped_lock(m_mutex);
+    printf("%d unused, %d used",
+      m_unused_buffers.size(),
+      m_buffers.size()
+    );
+  }
+
+  std::size_t get_num_unused()
+  {
+    std::scoped_lock(m_mutex);
+    return m_unused_buffers.size();
+  }
+
 private: 
   std::size_t m_num_frames_per_buffer;
   std::size_t m_num_channels;
@@ -113,7 +130,6 @@ private:
   std::mutex m_mutex;
 
 };
-
 
 
 void test_sample_pump()
@@ -129,7 +145,52 @@ void test_sample_pump()
 }
 
 
-void setup_port_audio()
+static int record_callback(
+  const void* input_buffer, 
+  void* output_buffer,
+  unsigned long frames_per_buffer,
+  const PaStreamCallbackTimeInfo* time_info,
+  PaStreamCallbackFlags status_flags,
+  void* user_data)
+{
+    auto input_buffer_ptr = static_cast<const SAMPLE_T*>(input_buffer);
+    auto sp = static_cast<SamplePump<SAMPLE_T>*>(user_data);
+    auto user_buffer = sp->get_empty();
+    if (user_buffer == nullptr)
+    {
+      // No buffer to process this new data; just skip it.
+      return paContinue;
+    } 
+    auto user_buffer_ptr = &(user_buffer.get()[0]);
+    if (input_buffer == nullptr)
+    {
+      for (unsigned long i=0; i<frames_per_buffer; i++)
+      {
+        *user_buffer_ptr++ = SAMPLE_SILENCE;
+        if (NUM_CHANNELS == 2) 
+        {
+          *user_buffer_ptr++ = SAMPLE_SILENCE;
+        }
+      }
+    }
+    else
+    {
+      for (unsigned long i=0; i<frames_per_buffer; i++)
+      {
+        *user_buffer_ptr++ = *input_buffer_ptr++;
+        if (NUM_CHANNELS == 2) 
+        {
+          *user_buffer_ptr++ = *input_buffer_ptr++;
+        }
+      }
+    }
+
+    sp->produce(std::move(user_buffer));
+    return paContinue;
+}
+
+
+PaStream* start_portaudio_stream(SamplePump<SAMPLE_T>& sp)
 {
   auto err = Pa_Initialize();
   if (err != paNoError)
@@ -141,6 +202,7 @@ void setup_port_audio()
     );
   }
 
+  PaStream* stream;
   PaStreamParameters inputParameters;
   inputParameters.device = Pa_GetDefaultInputDevice();
   if (inputParameters.device == paNoDevice) 
@@ -157,33 +219,40 @@ void setup_port_audio()
       inputParameters.device
   )->defaultLowInputLatency;
   inputParameters.hostApiSpecificStreamInfo = NULL;
-#if 0 
-  /* Record some audio. -------------------------------------------- */
+  
+  // Start the pump
   err = Pa_OpenStream(
-            &stream,
-            &inputParameters,
-            NULL,                  /* &outputParameters, */
-            SAMPLE_RATE,
-            FRAMES_PER_BUFFER,
-            paClipOff,      /* we won't output out of range samples so don't bother clipping them */
-            recordCallback,
-            &data );
-  if( err != paNoError ) goto done;
-
-  err = Pa_StartStream( stream );
-  if( err != paNoError ) goto done;
-  printf("\n=== Now recording!! Please speak into the microphone. ===\n"); fflush(stdout);
-
-  while( ( err = Pa_IsStreamActive( stream ) ) == 1 )
+    &stream,
+    &inputParameters,
+    NULL, // outputParameters
+    SAMPLE_RATE,
+    FRAMES_PER_BUFFER,
+    paClipOff,      /* we won't output out of range samples so don't bother clipping them */
+    record_callback,
+    &sp
+  );
+  
+  if (err != paNoError)
   {
-      Pa_Sleep(1000);
-      printf("index = %d\n", data.frameIndex ); fflush(stdout);
+    throw std::system_error(
+      err, 
+      std::generic_category(),
+      "Could not open recording stream"
+    );
   }
-  if( err < 0 ) goto done;
 
-  err = Pa_CloseStream( stream );
-  if( err != paNoError ) goto done;
-#endif
+  err = Pa_StartStream(stream);
+  if (err != paNoError)
+  {
+    throw std::system_error(
+      err, 
+      std::generic_category(),
+      "Could not start stream"
+    );
+  }
+  
+  return stream;
+
 }
 
 
@@ -191,6 +260,35 @@ int main(void)
 {
   printf("Simiolus 🐒 is an extinct genus of primates.\n\r");
   test_sample_pump();
+  SamplePump<SAMPLE_T> sp(FRAMES_PER_BUFFER, NUM_CHANNELS, NUM_BUFFERS);
+  
+  PaError err = paNoError;
+  auto stream = start_portaudio_stream(sp);
+
+  while ((err = Pa_IsStreamActive(stream)) == 1)
+  {
+      Pa_Sleep(200);
+      sp.print_status();
+  }
+
+  if (err < 0) 
+  {
+     throw std::system_error(
+      err, 
+      std::generic_category(),
+      "Error while pumping"
+    ); 
+  }
+
+  err = Pa_CloseStream(stream);
+  if (err != paNoError) 
+  {
+    throw std::system_error(
+      err, 
+      std::generic_category(),
+      "Error while closing stream"
+    );
+  }
   return 0;
 }
 
