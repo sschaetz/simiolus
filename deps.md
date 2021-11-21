@@ -6,4 +6,4 @@ _These should probably go inside the container_
 -  gcc (Ubuntu 9.3.0-17ubuntu1~20.04) 9.3.0
 - g++ (Ubuntu 9.3.0-17ubuntu1~20.04) 9.3.0
 - `libjack-jackd2-dev_1.9.12~dfsg-2ubuntu2_amd64.deb`
-
+- `libglfw3:amd64 (3.3.2-1)`

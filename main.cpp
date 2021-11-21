@@ -13,15 +13,24 @@
  */
 
 #include <deque>
+#include <iostream> 
 #include <list>
 #include <memory>
 #include <mutex>
+#include <sstream>  
+#include <string>  
 #include <vector>
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <GLFW/glfw3.h>
 
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
 #include "portaudio.h"
+
+
 
 
 #define PA_SAMPLE_TYPE paFloat32
@@ -105,18 +114,25 @@ public:
   }
 
 
-  void print_status()
+  void print_status() const
   {
-    std::scoped_lock(m_mutex);
-    printf("%d unused, %d used\r",
+    printf("%lu unused, %lu used\r",
       m_unused_buffers.size(),
       m_buffers.size()
     );
   }
 
-  std::size_t get_num_unused()
+  std::string get_status() const
   {
-    std::scoped_lock(m_mutex);
+    std::stringstream buffer;
+    buffer << 
+      m_unused_buffers.size() << " unused " <<
+      m_buffers.size() << "used";
+    return buffer.str(); 
+  }
+
+  std::size_t get_num_unused() const
+  {
     return m_unused_buffers.size();
   }
 
@@ -255,20 +271,185 @@ PaStream* start_portaudio_stream(SamplePump<SAMPLE_T>& sp)
 }
 
 
+void end_portaudio_stream(PaStream* stream)
+{
+  PaError err = Pa_CloseStream(stream);
+  if (err != paNoError) 
+  {
+    throw std::system_error(
+      err, 
+      std::generic_category(),
+      "Error while closing stream"
+    );
+  }
+}
+
+
+static void glfw_error_callback(int error, const char* description)
+{
+  fprintf(stderr, "Glfw Error %d: %s\n", error, description);
+}
+
+
+GLFWwindow* start_glfw_and_imgui_context(
+  unsigned const int window_size_x, 
+  unsigned const int window_size_y
+)
+{
+  // Setup window
+  glfwSetErrorCallback(glfw_error_callback);
+  if (!glfwInit())
+  {
+    throw std::system_error(
+      -1, 
+      std::generic_category(),
+      "Error calling glfwInit"
+    );
+  }
+
+#if defined(IMGUI_IMPL_OPENGL_ES2)
+  // GL ES 2.0 + GLSL 100
+  const char* glsl_version = "#version 100";
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+  glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+#elif defined(__APPLE__)
+  // GL 3.2 + GLSL 150
+  const char* glsl_version = "#version 150";
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
+  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required on Mac
+#else
+  // GL 3.0 + GLSL 130
+  const char* glsl_version = "#version 130";
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+  //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
+  //glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
+#endif
+
+  // Create window with graphics context
+  GLFWwindow* window = glfwCreateWindow(
+    window_size_x, window_size_y, "Simi", NULL, NULL
+  );
+  
+  if (window == NULL)
+  {
+    throw std::system_error(
+      -1, 
+      std::generic_category(),
+      "Error calling glfwInit"
+    );
+  }
+
+  glfwMakeContextCurrent(window);
+  glfwSwapInterval(1); // Enable vsync
+
+  // Setup Dear ImGui context
+  IMGUI_CHECKVERSION();
+  ImGui::CreateContext();
+  ImGuiIO& io = ImGui::GetIO(); (void)io;
+  //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+  //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+  // Setup Dear ImGui style
+  ImGui::StyleColorsDark();
+  //ImGui::StyleColorsClassic();
+
+  // Setup Platform/Renderer backends
+  ImGui_ImplGlfw_InitForOpenGL(window, true);
+  ImGui_ImplOpenGL3_Init(glsl_version);
+
+  return window;
+}
+
+
+void end_glfw_and_imgui_context(GLFWwindow* window)
+{
+  ImGui_ImplOpenGL3_Shutdown();
+  ImGui_ImplGlfw_Shutdown();
+  ImGui::DestroyContext();
+
+  glfwDestroyWindow(window);
+  glfwTerminate();
+}
+
+
+SAMPLE_T compute_max(SamplePump<SAMPLE_T>& sp)
+{
+  auto buffer = sp.consume();
+  if (buffer == nullptr)
+  {
+    return 0.0f;
+  }
+  auto buffer_ptr = buffer->data();
+  SAMPLE_T max = *buffer_ptr++;
+  SAMPLE_T min = max;
+  for (std::size_t i = 1; i<buffer->size(); i++)
+  {
+    auto v = *buffer_ptr++;
+    max = (v > max) ? v : max;
+    min = (v < min) ? v : min;
+  } 
+  sp.return_empty(std::move(buffer));
+  return max;
+}
+
+
+SAMPLE_T global_max = 0.0;
+
+
+void run_imgui_loop(GLFWwindow* window, SamplePump<SAMPLE_T>& sp)
+{
+  auto max = compute_max(sp);
+  global_max = (global_max < max) ? max : global_max;
+  glfwPollEvents();
+  ImGui_ImplOpenGL3_NewFrame();
+  ImGui_ImplGlfw_NewFrame();
+  ImGui::NewFrame(); 
+ 
+  ImGui::Begin("Hello, world!");
+  
+  ImGui::Text(sp.get_status().c_str());
+  ImGui::Text("max %f global max %f", max, global_max);
+  ImGui::End();
+
+  ImGui::Render();
+  int display_w, display_h;
+  glfwGetFramebufferSize(window, &display_w, &display_h);
+  glViewport(0, 0, display_w, display_h);
+  
+  ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+  glClearColor(
+    clear_color.x * clear_color.w, 
+    clear_color.y * clear_color.w, 
+    clear_color.z * clear_color.w, 
+    clear_color.w
+  );
+  glClear(GL_COLOR_BUFFER_BIT);
+  ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+  glfwSwapBuffers(window);
+}
+
+
 int main(void)
 {
   printf("Simiolus 🐒 is an extinct genus of primates.\n\r");
   test_sample_pump();
   SamplePump<SAMPLE_T> sp(FRAMES_PER_BUFFER, NUM_CHANNELS, NUM_BUFFERS);
-  
+
+  auto window = start_glfw_and_imgui_context(120, 80);
+
   PaError err = paNoError;
   auto stream = start_portaudio_stream(sp);
 
   while ((err = Pa_IsStreamActive(stream)) == 1)
   {
-      Pa_Sleep(200);
-      sp.print_status();
-      fflush(stdout);
+      run_imgui_loop(window, sp);
+      // Pa_Sleep(100);
+      // sp.print_status();
+      // fflush(stdout);
   }
 
   if (err < 0) 
@@ -280,15 +461,8 @@ int main(void)
     ); 
   }
 
-  err = Pa_CloseStream(stream);
-  if (err != paNoError) 
-  {
-    throw std::system_error(
-      err, 
-      std::generic_category(),
-      "Error while closing stream"
-    );
-  }
+  end_portaudio_stream(stream);
+  end_glfw_and_imgui_context(window);
   return 0;
 }
 
