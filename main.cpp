@@ -9,7 +9,6 @@
  * frames per buffer: the number of frames passed to the stream 
  *                    callback function, or the preferred block 
  *                    granularity for a blocking read/write stream.
- *
  */
 
 #include <cmath>
@@ -47,7 +46,7 @@ typedef float SAMPLE_T;
 #define NUM_BUFFERS 1024
 #define SAMPLE_RATE  44100
 #define FRAMES_PER_BUFFER 2048 
-#define SPECTRUM_SIZE 16
+#define SPECTRUM_SIZE 2048
 
 template <typename T>
 class SamplePump
@@ -272,7 +271,6 @@ PaStream* start_portaudio_stream(SamplePump<SAMPLE_T>& sp)
   }
   
   return stream;
-
 }
 
 
@@ -497,7 +495,7 @@ void run_imgui_loop(
   ImGui::Text("min %f global min %f", min, global_min);
   ImGui::Text("max %f global max %f", max, global_max);
   ImGui::End();
-#else
+#elif 0
   ImGuiIO& io = ImGui::GetIO();
   ImGui::Begin("FX", NULL, ImGuiWindowFlags_AlwaysAutoResize);
   ImVec2 size(320.0f, 180.0f);
@@ -515,6 +513,43 @@ void run_imgui_loop(
 
   FX(draw_list, p0, p1, size, mouse_data, (float)ImGui::GetTime(), power_spectrum);
   draw_list->PopClipRect();
+  ImGui::End();
+#else
+  ImGui::Begin("Power Spectrum");
+  ImGui::PlotLines(
+      "s", 
+      power_spectrum.data(), 
+      power_spectrum.size(),
+      0, // offset
+      nullptr, // overlay_text
+      -50.0f, // min
+      50.0f, // max
+      ImVec2(640, 480) // plot size
+  ); 
+  ImGui::End();
+  ImGui::Begin("Input Signal");
+  ImGui::PlotLines(
+      "i", 
+      average_buffer.data(), 
+      average_buffer.size(),
+      0, // offset
+      nullptr, // overlay_text
+      -1.0f, // min
+      1.0f, // max
+      ImVec2(640, 480) // plot size
+  ); 
+  ImGui::End();
+  ImGui::Begin("FFT");
+  ImGui::PlotLines(
+      "fft", 
+      reinterpret_cast<float*>(fft_buffer.data()), 
+      fft_buffer.size()*2,
+      0, // offset
+      nullptr, // overlay_text
+      -100.0f, // min
+      100.0f, // max
+      ImVec2(640, 480) // plot size
+  ); 
   ImGui::End();
 #endif  
 
