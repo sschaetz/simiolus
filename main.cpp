@@ -12,6 +12,8 @@
  *
  */
 
+#include <cmath>
+#include <complex>
 #include <deque>
 #include <iostream> 
 #include <list>
@@ -19,11 +21,14 @@
 #include <mutex>
 #include <sstream>  
 #include <string>  
+#include <tuple>
 #include <vector>
 
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <GLFW/glfw3.h>
+#include <fftw3.h>
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
@@ -38,11 +43,11 @@ typedef float SAMPLE_T;
 #define SAMPLE_SILENCE  0.0f
 #define PRINTF_S_FORMAT "%.8f"
 
-#define FRAMES_PER_BUFFER 512
 #define NUM_CHANNELS 2 
 #define NUM_BUFFERS 1024
 #define SAMPLE_RATE  44100
-#define FRAMES_PER_BUFFER 512
+#define FRAMES_PER_BUFFER 2048 
+#define SPECTRUM_SIZE 16
 
 template <typename T>
 class SamplePump
@@ -376,12 +381,13 @@ void end_glfw_and_imgui_context(GLFWwindow* window)
 }
 
 
-SAMPLE_T compute_max(SamplePump<SAMPLE_T>& sp)
+std::tuple<SAMPLE_T, SAMPLE_T> 
+compute_min_max(SamplePump<SAMPLE_T>& sp)
 {
   auto buffer = sp.consume();
   if (buffer == nullptr)
   {
-    return 0.0f;
+    return std::make_tuple(0.0f, 0.0f);
   }
   auto buffer_ptr = buffer->data();
   SAMPLE_T max = *buffer_ptr++;
@@ -393,27 +399,124 @@ SAMPLE_T compute_max(SamplePump<SAMPLE_T>& sp)
     min = (v < min) ? v : min;
   } 
   sp.return_empty(std::move(buffer));
-  return max;
+  return std::make_tuple(min, max);
 }
 
 
+SAMPLE_T global_min = 0.0;
 SAMPLE_T global_max = 0.0;
 
 
-void run_imgui_loop(GLFWwindow* window, SamplePump<SAMPLE_T>& sp)
+#define V2 ImVec2
+void FX(ImDrawList* d, V2 a, V2 b, V2 sz, ImVec4, float t, std::vector<float>& power_spectrum)
 {
-  auto max = compute_max(sp);
-  global_max = (global_max < max) ? max : global_max;
+  float sx = 1.f / (float)power_spectrum.size();
+  float sy = 1.f / 9.f;
+  int ps_ctr = 0;
+  for (float ty = 0.0f; ty < 1.0f; ty += sy)
+  {
+    for (float tx = 0.0f; tx < 1.0f; tx += sx)
+    {
+      V2 c((tx + 0.5f * sx), (ty + 0.5f * sy));
+      float k = 0.45f;
+      d->AddRectFilled(
+        V2(a.x + (c.x - k * sx) * sz.x, a.y + (c.y - k * sy) * sz.y),
+        V2(a.x + (c.x + k * sx) * sz.x, a.y + (c.y + k * sy) * sz.y),
+        IM_COL32(200, 255, 100, power_spectrum[ps_ctr] > ty ? 255 : 50)
+      );
+    }
+    ps_ctr++; 
+  }
+}
+
+
+std::vector<SAMPLE_T> average_buffer(FRAMES_PER_BUFFER);
+std::vector<std::complex<SAMPLE_T>> fft_buffer(FRAMES_PER_BUFFER);
+std::vector<float> power_spectrum(SPECTRUM_SIZE);
+
+void run_imgui_loop(
+  GLFWwindow* window, 
+  SamplePump<SAMPLE_T>& sp, 
+  fftwf_plan& fft_plan
+)
+{
+  // Average left and right into a single channel
+  auto buffer = sp.consume();
+  
+  if (buffer == nullptr)
+  {
+    // TODO: re-draw window to ensure responsiveness
+    return;
+  }
+  
+  auto buffer_ptr = buffer->data();
+  auto average_buffer_ptr = average_buffer.data();
+
+  for (std::size_t i = 0; i<FRAMES_PER_BUFFER; i++)
+  {
+    *average_buffer_ptr++ = (*buffer_ptr++ + *buffer_ptr++) / 2;
+  }
+  sp.return_empty(std::move(buffer));
+  
+  // Apply a hanning window to signal
+   
+  // Compute FFT
+  fftwf_execute(fft_plan);
+
+  // compute mangitude: sqrt(real*real + imag*imag)
+  // and
+  // compute log scale: 20*log10(magnitude)
+  // and
+  // combine into 8 bins
+  
+  {
+    auto spectrum_ptr = power_spectrum.data();
+    auto fft_buffer_ptr = fft_buffer.data();
+    auto frames_per_spectrum_bin = (std::size_t)(FRAMES_PER_BUFFER/SPECTRUM_SIZE);
+    for (int ps=0; ps<SPECTRUM_SIZE; ps++)
+    {
+      *spectrum_ptr = 0.0f;
+      for (int fq=0; fq<frames_per_spectrum_bin; fq++)
+      {
+        *spectrum_ptr += 20.0f * std::log10(std::abs(*fft_buffer_ptr++));
+      }
+      *spectrum_ptr /= (float)frames_per_spectrum_bin; 
+      spectrum_ptr++; 
+    }   
+  }
+
+  
   glfwPollEvents();
   ImGui_ImplOpenGL3_NewFrame();
   ImGui_ImplGlfw_NewFrame();
   ImGui::NewFrame(); 
  
+#if 0 
   ImGui::Begin("Hello, world!");
-  
   ImGui::Text(sp.get_status().c_str());
+  ImGui::Text("min %f global min %f", min, global_min);
   ImGui::Text("max %f global max %f", max, global_max);
   ImGui::End();
+#else
+  ImGuiIO& io = ImGui::GetIO();
+  ImGui::Begin("FX", NULL, ImGuiWindowFlags_AlwaysAutoResize);
+  ImVec2 size(320.0f, 180.0f);
+  ImGui::InvisibleButton("canvas", size);
+  ImVec2 p0 = ImGui::GetItemRectMin();
+  ImVec2 p1 = ImGui::GetItemRectMax();
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  draw_list->PushClipRect(p0, p1);
+
+  ImVec4 mouse_data;
+  mouse_data.x = (io.MousePos.x - p0.x) / size.x;
+  mouse_data.y = (io.MousePos.y - p0.y) / size.y;
+  mouse_data.z = io.MouseDownDuration[0];
+  mouse_data.w = io.MouseDownDuration[1];
+
+  FX(draw_list, p0, p1, size, mouse_data, (float)ImGui::GetTime(), power_spectrum);
+  draw_list->PopClipRect();
+  ImGui::End();
+#endif  
 
   ImGui::Render();
   int display_w, display_h;
@@ -444,9 +547,16 @@ int main(void)
   PaError err = paNoError;
   auto stream = start_portaudio_stream(sp);
 
+  auto fft_plan = fftwf_plan_dft_r2c_1d(
+     FRAMES_PER_BUFFER, 
+     average_buffer.data(), 
+     reinterpret_cast<fftwf_complex*>(fft_buffer.data()),
+     FFTW_ESTIMATE
+  );
+
   while ((err = Pa_IsStreamActive(stream)) == 1)
   {
-      run_imgui_loop(window, sp);
+      run_imgui_loop(window, sp, fft_plan);
       // Pa_Sleep(100);
       // sp.print_status();
       // fflush(stdout);
@@ -461,6 +571,7 @@ int main(void)
     ); 
   }
 
+  fftwf_destroy_plan(fft_plan); 
   end_portaudio_stream(stream);
   end_glfw_and_imgui_context(window);
   return 0;
