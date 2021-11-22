@@ -46,7 +46,7 @@ typedef float SAMPLE_T;
 #define NUM_BUFFERS 1024
 #define SAMPLE_RATE  44100
 #define FRAMES_PER_BUFFER 2048
-#define SPECTRUM_SIZE 2048
+#define SPECTRUM_SIZE 512
 
 template <typename T>
 class SamplePump
@@ -429,8 +429,20 @@ void FX(ImDrawList* d, V2 a, V2 b, V2 sz, ImVec4, float t, std::vector<float>& p
 
 
 std::vector<SAMPLE_T> average_buffer(FRAMES_PER_BUFFER);
+std::vector<SAMPLE_T> hann_filter(FRAMES_PER_BUFFER);
 std::vector<std::complex<SAMPLE_T>> fft_buffer(FRAMES_PER_BUFFER);
 std::vector<float> power_spectrum(SPECTRUM_SIZE);
+
+
+void compute_hann_filter(std::vector<SAMPLE_T>& hann_filter)
+{
+  auto N = hann_filter.size()-1;
+  for (std::size_t i=0; i<hann_filter.size(); i++)
+  {
+    hann_filter[i] = .5 * (1 - std::cos(2*M_PI*i/N));
+  }
+}
+
 
 void run_imgui_loop(
   GLFWwindow* window,
@@ -439,6 +451,8 @@ void run_imgui_loop(
 )
 {
   // Average left and right into a single channel
+  // and
+  // Apply a hanning window to signal
   auto buffer = sp.consume();
 
   if (buffer == nullptr)
@@ -452,11 +466,10 @@ void run_imgui_loop(
 
   for (std::size_t i = 0; i<FRAMES_PER_BUFFER; i++)
   {
-    *average_buffer_ptr++ = (*buffer_ptr++ + *buffer_ptr++) / 2;
+    *average_buffer_ptr++ = ((*buffer_ptr++ + *buffer_ptr++) / 2) *
+      hann_filter[i];
   }
   sp.return_empty(std::move(buffer));
-
-  // Apply a hanning window to signal
 
   // Compute FFT
   fftwf_execute(fft_plan);
@@ -470,7 +483,7 @@ void run_imgui_loop(
   {
     auto spectrum_ptr = power_spectrum.data();
     auto fft_buffer_ptr = fft_buffer.data();
-    auto frames_per_spectrum_bin = (std::size_t)(FRAMES_PER_BUFFER/SPECTRUM_SIZE);
+    auto frames_per_spectrum_bin = (std::size_t)(FRAMES_PER_BUFFER/SPECTRUM_SIZE/2);
     for (int ps=0; ps<SPECTRUM_SIZE; ps++)
     {
       *spectrum_ptr = 0.0f;
@@ -524,7 +537,7 @@ void run_imgui_loop(
       nullptr, // overlay_text
       -50.0f, // min
       50.0f, // max
-      ImVec2(640, 480) // plot size
+      ImVec2(550, 200) // plot size
   );
   ImGui::End();
   ImGui::Begin("Input Signal");
@@ -536,7 +549,7 @@ void run_imgui_loop(
       nullptr, // overlay_text
       -1.0f, // min
       1.0f, // max
-      ImVec2(640, 480) // plot size
+      ImVec2(550, 200) // plot size
   );
   ImGui::End();
   ImGui::Begin("FFT");
@@ -548,7 +561,7 @@ void run_imgui_loop(
       nullptr, // overlay_text
       -100.0f, // min
       100.0f, // max
-      ImVec2(640, 480) // plot size
+      ImVec2(550, 200) // plot size
   );
   ImGui::End();
 #endif
@@ -589,6 +602,7 @@ int main(void)
      FFTW_ESTIMATE
   );
 
+  compute_hann_filter(hann_filter);
   while ((err = Pa_IsStreamActive(stream)) == 1)
   {
       run_imgui_loop(window, sp, fft_plan);
