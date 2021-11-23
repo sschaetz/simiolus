@@ -3,7 +3,7 @@
 This is a playground where to experiment with the 3 things I love: <br/>
 music, visualization and Fourier transforms:
 
-![simi.gif](https://github.com/sschaetz/simiolus/blob/main/simi.gif?raw=true)
+![simi_eq.gif](https://github.com/sschaetz/simiolus/blob/main/simi_eq.gif?raw=true)
 
 It is mostly a sandbox to learn new things. We use:
 - [imgui](https://github.com/ocornut/imgui)
@@ -11,5 +11,5 @@ It is mostly a sandbox to learn new things. We use:
 - [fftw3](https://www.fftw.org/)
 
 Full (informal) list of dependencies [here](deps.md).
-License is the [MIT License](LICENSE.md)
+License is the [MIT License](LICENSE.md).
 

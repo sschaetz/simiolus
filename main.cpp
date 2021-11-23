@@ -11,6 +11,7 @@
  *                    granularity for a blocking read/write stream.
  */
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
 #include <deque>
@@ -47,6 +48,51 @@ typedef float SAMPLE_T;
 #define SAMPLE_RATE  44100
 #define FRAMES_PER_BUFFER 2048
 #define SPECTRUM_SIZE 512
+
+
+std::list<std::tuple<int, int>> equalizer =
+{
+  {5, 10},
+  {10, 15},
+  {15, 20},
+  {20, 25},
+  {25, 30},
+  {30, 35},
+  {35, 40},
+  {40, 45},
+  {45, 50},
+  {50, 55},
+  {55, 60},
+  {60, 65},
+  {65, 70},
+  {70, 75},
+  {75, 80},
+  {80, 85},
+  {85, 90},
+  {90, 95},
+  {95, 100},
+  {100, 105},
+  {105, 110},
+  {110, 115},
+  {115, 120},
+  {120, 125},
+  {125, 130},
+  {130, 135},
+  {135, 140},
+  {140, 145},
+  {145, 150},
+  {150, 155},
+  {155, 160},
+  {160, 165},
+  {165, 170},
+  {170, 175},
+  {175, 180},
+  {180, 185},
+  {185, 190},
+  {190, 195},
+  {195, 200}
+};
+
 
 template <typename T>
 class SamplePump
@@ -432,6 +478,7 @@ std::vector<SAMPLE_T> average_buffer(FRAMES_PER_BUFFER);
 std::vector<SAMPLE_T> hann_filter(FRAMES_PER_BUFFER);
 std::vector<std::complex<SAMPLE_T>> fft_buffer(FRAMES_PER_BUFFER);
 std::vector<float> power_spectrum(SPECTRUM_SIZE);
+std::vector<float> equalizer_buffer(equalizer.size());
 
 
 void compute_hann_filter(std::vector<SAMPLE_T>& hann_filter)
@@ -443,6 +490,32 @@ void compute_hann_filter(std::vector<SAMPLE_T>& hann_filter)
   }
 }
 
+
+void compute_equalizer()
+{
+  int start, stop;
+  auto equlizer_buffer_ptr = equalizer_buffer.data();
+  auto power_spectrum_ptr = power_spectrum.data();
+  for(auto range : equalizer)
+  {
+    std::tie(start, stop) = range;
+    *equlizer_buffer_ptr = 0.0f;
+    for (int i=start; i<stop; i++)
+    {
+      *equlizer_buffer_ptr += -1.0f * std::clamp(
+          *power_spectrum_ptr++,
+          -100.0f,
+          0.0f
+        );
+    }
+    *equlizer_buffer_ptr /= (float)(stop-start);
+    // printf("eq %d %d %f\n", start, stop, *equlizer_buffer_ptr);
+    equlizer_buffer_ptr++;
+  }
+}
+
+
+#define V2 ImVec2
 
 void run_imgui_loop(
   GLFWwindow* window,
@@ -496,38 +569,13 @@ void run_imgui_loop(
     }
   }
 
+  compute_equalizer();
 
   glfwPollEvents();
   ImGui_ImplOpenGL3_NewFrame();
   ImGui_ImplGlfw_NewFrame();
   ImGui::NewFrame();
 
-#if 0
-  ImGui::Begin("Hello, world!");
-  ImGui::Text(sp.get_status().c_str());
-  ImGui::Text("min %f global min %f", min, global_min);
-  ImGui::Text("max %f global max %f", max, global_max);
-  ImGui::End();
-#elif 0
-  ImGuiIO& io = ImGui::GetIO();
-  ImGui::Begin("FX", NULL, ImGuiWindowFlags_AlwaysAutoResize);
-  ImVec2 size(320.0f, 180.0f);
-  ImGui::InvisibleButton("canvas", size);
-  ImVec2 p0 = ImGui::GetItemRectMin();
-  ImVec2 p1 = ImGui::GetItemRectMax();
-  ImDrawList* draw_list = ImGui::GetWindowDrawList();
-  draw_list->PushClipRect(p0, p1);
-
-  ImVec4 mouse_data;
-  mouse_data.x = (io.MousePos.x - p0.x) / size.x;
-  mouse_data.y = (io.MousePos.y - p0.y) / size.y;
-  mouse_data.z = io.MouseDownDuration[0];
-  mouse_data.w = io.MouseDownDuration[1];
-
-  FX(draw_list, p0, p1, size, mouse_data, (float)ImGui::GetTime(), power_spectrum);
-  draw_list->PopClipRect();
-  ImGui::End();
-#else
   ImGui::Begin("Power Spectrum");
   ImGui::PlotLines(
       "s",
@@ -537,7 +585,7 @@ void run_imgui_loop(
       nullptr, // overlay_text
       -50.0f, // min
       50.0f, // max
-      ImVec2(550, 200) // plot size
+      ImVec2(230, 180) // plot size
   );
   ImGui::End();
   ImGui::Begin("Input Signal");
@@ -564,7 +612,45 @@ void run_imgui_loop(
       ImVec2(550, 200) // plot size
   );
   ImGui::End();
-#endif
+
+  ImGuiIO& io = ImGui::GetIO();
+  ImGui::Begin("Equalizer", NULL, ImGuiWindowFlags_AlwaysAutoResize);
+  ImVec2 size(320.0f, 180.0f);
+  ImGui::InvisibleButton("canvas", size);
+  ImVec2 a = ImGui::GetItemRectMin();
+  ImVec2 b = ImGui::GetItemRectMax();
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  draw_list->PushClipRect(a, b);
+
+  {
+    float sx = 1.f / (float)equalizer_buffer.size();
+    float sy = 1.f / 16.0f;
+    int ps_ctr = 0;
+    auto max = *std::max_element(
+      equalizer_buffer.begin(),
+      equalizer_buffer.end()
+    );
+    for (float tx = 0.0f; tx < 1.0f; tx += sx)
+    {
+      // This goes from left to right.
+      auto eq_val = 1.0f - (equalizer_buffer[ps_ctr] / max);
+      for (float ty = 0.0f; ty < 1.0f; ty += sy)
+      // This goes from top to bottom.
+      {
+        V2 c((tx + 0.4f * sx), (ty + 0.4f * sy));
+        float k = 0.3f;
+        draw_list->AddRectFilled(
+          V2(a.x + (c.x - k * sx) * size.x, a.y + (c.y - k * sy) * size.y),
+          V2(a.x + (c.x + k * sx) * size.x, a.y + (c.y + k * sy) * size.y),
+          IM_COL32(200, 255, 100, eq_val >= 1.0f - ty ? 255 : 50)
+        );
+      }
+      ps_ctr++;
+    }
+  }
+
+  draw_list->PopClipRect();
+  ImGui::End();
 
   ImGui::Render();
   int display_w, display_h;
