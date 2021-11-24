@@ -123,7 +123,7 @@ public:
 
   BufferT get_empty()
   {
-    std::scoped_lock(m_mutex);
+    auto l = std::scoped_lock(m_mutex);
     if (m_unused_buffers.empty())
     {
       return nullptr;
@@ -138,13 +138,13 @@ public:
 
   void return_empty(BufferT buffer)
   {
-    std::scoped_lock(m_mutex);
+    auto l = std::scoped_lock(m_mutex);
     m_unused_buffers.push_front(std::move(buffer));
   }
 
   BufferT consume()
   {
-    std::scoped_lock(m_mutex);
+    auto l = std::scoped_lock(m_mutex);
     if (m_buffers.empty())
     {
       return nullptr;
@@ -159,7 +159,7 @@ public:
 
   void produce(BufferT buffer)
   {
-    std::scoped_lock(m_mutex);
+    auto l = std::scoped_lock(m_mutex);
     m_buffers.push_back(std::move(buffer));
   }
 
