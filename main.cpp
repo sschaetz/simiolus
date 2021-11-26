@@ -43,7 +43,12 @@ typedef float SAMPLE_T;
 #define SAMPLE_SILENCE  0.0f
 #define PRINTF_S_FORMAT "%.8f"
 
+#if __linux
 #define NUM_CHANNELS 2
+#elif __APPLE__
+#define NUM_CHANNELS 1
+#endif
+
 #define NUM_BUFFERS 1024
 #define SAMPLE_RATE  44100
 #define FRAMES_PER_BUFFER 2048
@@ -263,7 +268,7 @@ PaStream* start_portaudio_stream(SamplePump<SAMPLE_T>& sp)
     throw std::system_error(
       err,
       std::generic_category(),
-      "Could not initialize portaudio"
+      Pa_GetErrorText(err)
     );
   }
 
@@ -275,7 +280,7 @@ PaStream* start_portaudio_stream(SamplePump<SAMPLE_T>& sp)
      throw std::system_error(
       err,
       std::generic_category(),
-      "No default input device"
+      Pa_GetErrorText(err)
     );
   }
   inputParameters.channelCount = NUM_CHANNELS;
@@ -302,7 +307,7 @@ PaStream* start_portaudio_stream(SamplePump<SAMPLE_T>& sp)
     throw std::system_error(
       err,
       std::generic_category(),
-      "Could not open recording stream"
+      Pa_GetErrorText(err)
     );
   }
 
@@ -312,7 +317,7 @@ PaStream* start_portaudio_stream(SamplePump<SAMPLE_T>& sp)
     throw std::system_error(
       err,
       std::generic_category(),
-      "Could not start stream"
+      Pa_GetErrorText(err)
     );
   }
 
@@ -328,7 +333,7 @@ void end_portaudio_stream(PaStream* stream)
     throw std::system_error(
       err,
       std::generic_category(),
-      "Error while closing stream"
+      Pa_GetErrorText(err)
     );
   }
 }
@@ -702,7 +707,7 @@ int main(void)
      throw std::system_error(
       err,
       std::generic_category(),
-      "Error while pumping"
+      Pa_GetErrorText(err)
     );
   }
 
