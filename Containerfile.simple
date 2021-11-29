@@ -1,5 +1,7 @@
 # This is Ubuntu 20.04 amd64
-FROM docker.io/library/ubuntu@sha256:7cc0576c7c0ec2384de5cbf245f41567e922aab1b075f3e8ad565f508032df17
+
+ARG H=7cc0576c7c0ec2384de5cbf245f41567e922aab1b075f3e8ad565f508032df17
+FROM docker.io/library/ubuntu@sha256:${H}
 
 ENV DEBIAN_FRONTEND="noninteractive" TZ="Europe/London"
 
