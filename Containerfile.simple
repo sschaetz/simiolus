@@ -22,7 +22,7 @@ COPY . .
 
 # Compile
 RUN mkdir -p build
-WORKDIR /home/lib
+WORKDIR /home/lib/build
 RUN cmake ..
 RUN make -j
 
