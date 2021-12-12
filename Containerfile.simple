@@ -12,17 +12,22 @@ RUN apt-get update && apt-get install -y \
   g++ \
   libjack-jackd2-dev \
   libglfw3-dev \
-  libfftw3-dev
+  libfftw3-dev \
+  tree
 
-FROM env AS build
+FROM env AS ci-build
 
-# Copy repo content into container
-WORKDIR /home/lib
-COPY . .
+
+# Copy all the files
+COPY ./ /github/workspace
+WORKDIR /github/workspace
+
+# Double check that we have all the files
+RUN tree
 
 # Compile
 RUN mkdir -p build
-WORKDIR /home/lib/build
+WORKDIR /github/workspace/build
 RUN cmake ..
 RUN make -j
 

@@ -6,7 +6,13 @@ jobs:
   build-docker:
     runs-on: ubuntu-20.04
     steps:
-    - uses: actions/checkout@v2
+    - name: Checkout repository and submodules
+      uses: actions/checkout@v2
+      with:
+        submodules: recursive
     - name: Compile in container
-      run: docker build --target=build --tag simi:build -f Containerfile.simple  .
+      run: |
+        docker build --target=ci-build \
+        --tag simi:build \
+        -f Containerfile.simple .
 
