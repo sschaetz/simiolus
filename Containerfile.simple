@@ -1,7 +1,7 @@
 # This is Ubuntu 20.04 amd64
 
 ARG H=7cc0576c7c0ec2384de5cbf245f41567e922aab1b075f3e8ad565f508032df17
-FROM docker.io/library/ubuntu@sha256:${H}
+FROM docker.io/library/ubuntu@sha256:${H} AS env
 
 ENV DEBIAN_FRONTEND="noninteractive" TZ="Europe/London"
 
@@ -13,3 +13,16 @@ RUN apt-get update && apt-get install -y \
   libjack-jackd2-dev \
   libglfw3-dev \
   libfftw3-dev
+
+FROM env AS build
+
+# Copy repo content into container
+WORKDIR /home/lib
+COPY . .
+
+# Compile
+RUN mkdir -p build
+WORKDIR /home/lib
+RUN cmake ..
+RUN make -j
+

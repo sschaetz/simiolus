@@ -1,0 +1,12 @@
+name: C++ CI
+
+on: [push, pull_request]
+
+jobs:
+  build-docker:
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v2
+    - name: Compile in container
+      run: docker build --target=build --tag simi:build -f Containerfile.simple  .
+
